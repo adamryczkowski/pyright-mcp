@@ -68,7 +68,7 @@ class CheckResult(TypedDict):
     pyright_version: str
     analyzed_root: str
     checked_paths: List[str]
-    venv_path: str | None
+    venv_path: str
 
 
 @dataclass(frozen=True)
@@ -124,14 +124,14 @@ def _supports_outputjson(version: str) -> bool:
     return bool(re.match(r"^\d+\.\d+\.\d+$", version))
 
 
-def _detect_venv_path() -> str | None:
+def _detect_venv_path() -> str:
     """
-    Best-effort detection of the active virtual environment path.
+    Best-effort detection of the active Python environment path used for libraries.
 
     Priority:
       1) $VIRTUAL_ENV if set
-      2) sys.prefix when it differs from sys.base_prefix
-      3) None if no venv is active
+      2) sys.prefix when it differs from sys.base_prefix (virtual environment)
+      3) sys.prefix (base interpreter) as a stable fallback
     """
     env = os.environ.get("VIRTUAL_ENV")
     if env:
@@ -144,7 +144,12 @@ def _detect_venv_path() -> str | None:
             return str(Path(sys.prefix).resolve())
     except Exception:
         pass
-    return None
+    # Fallback: always provide a path (mandatory contract)
+    try:
+        return str(Path(sys.prefix).resolve())
+    except Exception:
+        # Extremely unlikely; fallback to current working directory to keep contract
+        return str(Path.cwd())
 
 
 def get_pyright_version() -> VersionInfo:

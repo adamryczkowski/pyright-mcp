@@ -47,7 +47,7 @@ class PyrightCheckResultModel(BaseModel):
     pyright_version: str
     analyzed_root: str
     checked_paths: list[str]
-    venv_path: Optional[str] = None
+    venv_path: str
 
 
 class PyrightVersionResultModel(BaseModel):

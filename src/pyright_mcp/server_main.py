@@ -62,7 +62,7 @@ def find_pyright_config(start_dir: str | None = None) -> FindConfigResultModel:
 
 @mcp.tool()
 def pyright_check(
-    target: str = ".",
+    target: str,
     cwd: str | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,

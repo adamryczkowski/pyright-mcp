@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MCP server to run Pyright and return structured diagnostics for coding AIs"
 authors = ["Your Name <you@example.com>"]
 license = "MIT"
-readme = "README.md"
+readme = "README.adoc"
 packages = [{ include = "pyright_mcp", from = "src" }]
 
 [tool.poetry.scripts]

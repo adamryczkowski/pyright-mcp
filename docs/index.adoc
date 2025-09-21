@@ -29,7 +29,7 @@ This server uses the Python SDK’s FastMCP to expose three tools over stdio.
 === Tool: pyright_check
 - Purpose: Run Pyright with JSON output on a target path (file or directory).
 - Arguments:
-  - target: string, default ".".
+  - target: string (required).
   - cwd: optional string. If provided, run from this working directory.
   - include: optional array of glob strings (relative to cwd/target).
   - exclude: optional array of glob strings (passed as filter on include set).
@@ -58,7 +58,7 @@ This server uses the Python SDK’s FastMCP to expose three tools over stdio.
   - pyright_version: string
   - analyzed_root: absolute path used as working directory for invocation
   - checked_paths: array of absolute paths that were provided to Pyright (files or directories)
-  - venv_path: absolute path to the active virtual environment used for execution (if any)
+  - venv_path: absolute path to the Python environment used for execution (virtual env if active, otherwise sys.prefix)
 - Ordering: Diagnostics are deterministically sorted by (file, start.line, start.character).
 - Error semantics: Structured success (ok/false) is used for expected conditions (threshold breach, no such path, timeout, parse errors); the tool does not raise unhandled exceptions.
 
