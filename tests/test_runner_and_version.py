@@ -202,16 +202,18 @@ def test_fail_on_severity_threshold(tmp_path: Path, threshold: FailOn, expect_ok
 
 
 def test_pyright_not_found_error_message(monkeypatch) -> None:
-    # Simulate pyright not being available by altering PATH so 'pyright' cannot be found.
-    old_path = os.environ.get("PATH", "")
-    try:
-        os.environ["PATH"] = ""  # clear PATH
-        from pyright_mcp.runner import get_pyright_version
+    # Simulate pyright being unavailable both as an executable and as a Python module.
+    from pyright_mcp import runner as r
 
-        info = get_pyright_version()
-        # When not found, we return a structured "not found" response
-        assert info["version"] == ""
-        assert info["executable_path"] == ""
-        assert info["supports_outputjson"] is False
-    finally:
-        os.environ["PATH"] = old_path
+    monkeypatch.setattr(r.shutil, "which", lambda name: None)
+
+    def fake_run(*args: Any, **kwargs: Any):
+        # Make any attempt to invoke "python -m pyright" fail
+        raise FileNotFoundError("pyright not available")
+
+    monkeypatch.setattr(r.subprocess, "run", fake_run)
+
+    info = r.get_pyright_version()
+    assert info["version"] == ""
+    assert info["executable_path"] == ""
+    assert info["supports_outputjson"] is False

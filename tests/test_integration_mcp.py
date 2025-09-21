@@ -18,10 +18,10 @@ async def test_server_integration_std_io(tmp_path: Path) -> None:
         "def f(x: int) -> int:\n    return 'not-int'\n", encoding="utf-8"
     )
 
-    # Spawn our server via Poetry console script
+    # Spawn our server via installed console script (works with pipx or Poetry venv)
     server_params = StdioServerParameters(
-        command="poetry",
-        args=["run", "pyright-mcp-server"],
+        command="pyright-mcp-server",
+        args=[],
         env={},
     )
 

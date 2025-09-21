@@ -152,13 +152,43 @@ def _detect_venv_path() -> str:
         return str(Path.cwd())
 
 
-def get_pyright_version() -> VersionInfo:
+def _build_pyright_argv() -> Tuple[List[str], str]:
+    """
+    Resolve how to invoke pyright.
+
+    Returns:
+      (argv_prefix, display_exe)
+      - argv_prefix: e.g. ["/path/to/pyright"] or [sys.executable, "-m", "pyright"]
+      - display_exe: human-readable command identifier used in VersionInfo.executable_path
+    """
     exe = shutil.which("pyright")
-    if not exe:
+    if exe:
+        return [exe], exe
+    # Fallback to Python module invocation if available
+    try:
+        cp = subprocess.run(
+            [sys.executable, "-m", "pyright", "--version"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        if cp.returncode == 0 and cp.stdout:
+            return [sys.executable, "-m", "pyright"], f"{sys.executable} -m pyright"
+    except Exception:
+        pass
+    return [], ""
+
+def get_pyright_version() -> VersionInfo:
+    argv, display = _build_pyright_argv()
+    if not argv:
         return VersionInfo(version="", executable_path="", supports_outputjson=False)
     try:
         cp = subprocess.run(
-            [exe, "--version"],
+            [*argv, "--version"],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -168,10 +198,9 @@ def get_pyright_version() -> VersionInfo:
             timeout=10,
         )
         ver = _parse_version_string(cp.stdout or "")
-        return VersionInfo(version=ver, executable_path=exe, supports_outputjson=_supports_outputjson(ver))
+        return VersionInfo(version=ver, executable_path=display or argv[0], supports_outputjson=_supports_outputjson(ver))
     except Exception:
-        # If version probing fails unexpectedly, still report path
-        return VersionInfo(version="", executable_path=exe, supports_outputjson=False)
+        return VersionInfo(version="", executable_path=display or (argv[0] if argv else ""), supports_outputjson=False)
 
 
 def _iter_included_paths(root: Path, include: Optional[List[str]], exclude: Optional[List[str]]) -> List[Path]:
@@ -295,13 +324,14 @@ class PyrightRunner:
             checked_paths = [str(target_path.resolve())]
 
         version_info = get_pyright_version()
-        exe = version_info["executable_path"]
-        if not exe:
+        argv_prefix, display_exe = _build_pyright_argv()
+        if not argv_prefix:
             return CheckResult(
                 ok=False,
                 fail_reason=(
-                    "Pyright executable not found on PATH. Install with `npm i -g pyright` "
-                    "or use `npx pyright`. Ensure PATH is available inside Poetry shell."
+                    "Pyright not available (neither 'pyright' executable nor 'python -m pyright'). "
+                    "Install via pipx: 'pipx install pyright-mcp' (bundles pyright), "
+                    "or add pyright to your environment."
                 ),
                 command=[],
                 exit_code=-1,
@@ -320,7 +350,7 @@ class PyrightRunner:
             )
 
         # Build invocation
-        argv: List[str] = [exe, "--outputjson"]
+        argv: List[str] = [*argv_prefix, "--outputjson"]
         if params.extra_args:
             argv.extend(params.extra_args)
 

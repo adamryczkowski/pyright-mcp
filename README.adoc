@@ -18,10 +18,18 @@ MCP is a small, JSON‑RPC based way for tools to talk to AIs (and each other). 
 
 == Quick start
 
-* poetry install
+Install (recommended with pipx)
+
+[source,shell]
+----
+pipx install pyright-mcp
+----
+
+Run
+
+* pyright-mcp-server
 * poetry run pyright
 * poetry run pytest -q
-* poetry run pyright-mcp-server
 
 == Tools and API
 
@@ -153,6 +161,25 @@ Flow
 * poetry run pyright
 * poetry run pytest -q
 * poetry run pyright-mcp-server
+
+== MCP Client Integration
+
+* Typical launch: ["pyright-mcp-server"]
+
+MCP.json example
+
+[source,json]
+----
+{
+  "servers": {
+    "pyright-mcp": {
+      "command": ["pyright-mcp-server"],
+      "env": {},
+      "enabled": true
+    }
+  }
+}
+----
 
 == Testing
 
