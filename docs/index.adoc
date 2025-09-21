@@ -1,0 +1,202 @@
+= pyright-mcp: Pyright MCP Server
+:toc: macro
+:toclevels: 3
+:sectanchors:
+
+toc::[]
+
+== Overview
+This project provides a Model Context Protocol (MCP) server that runs the Pyright static type checker and returns structured, deterministic diagnostics suitable for automated coding tools and CI bots.
+
+- Transport: stdio using the official MCP Python SDK (FastMCP).
+- Package manager: Poetry.
+- Language level: Python 3.12.
+- Testing: pytest (plus pytest-asyncio for integration).
+- Static typing: Pyright configured for repo; server’s public API fully typed.
+
+== Quick start
+- poetry install
+- poetry run pyright
+- poetry run pytest -q
+- poetry run pyright-mcp-server
+
+== MCP Primer (concise)
+MCP is a JSON-RPC based protocol for tool invocation and resource access. Servers advertise tools with JSON schemas; clients call tools and receive structured results.
+This server uses the Python SDK’s FastMCP to expose three tools over stdio.
+
+== API Specification
+
+=== Tool: pyright_check
+- Purpose: Run Pyright with JSON output on a target path (file or directory).
+- Arguments:
+  - target: string, default ".".
+  - cwd: optional string. If provided, run from this working directory.
+  - include: optional array of glob strings (relative to cwd/target).
+  - exclude: optional array of glob strings (passed as filter on include set).
+  - extra_args: optional array of strings for CLI flags (e.g. ["--pythonversion","3.12"]).
+  - timeout_sec: int, default 60, minimum 1.
+  - fail_on_severity: one of "none" | "information" | "warning" | "error". Threshold to mark ok=false when diagnostics at or above the given level are present; diagnostics are still returned.
+- Returns object:
+  - ok: boolean
+  - fail_reason: optional string
+  - command: array of strings (the invoked pyright command)
+  - exit_code: integer (pyright’s exit code or -1 for infrastructure errors)
+  - summary: object
+    - files_analyzed: int
+    - error_count: int
+    - warning_count: int
+    - information_count: int
+    - time_sec: float
+  - diagnostics: array of objects (stable-sorted)
+    - file: absolute path
+    - range: { start: { line:int, character:int }, end: { line:int, character:int } }
+    - severity: "information" | "warning" | "error"
+    - severity_level: 1 | 2 | 3  (information=1, warning=2, error=3)
+    - message: string
+    - code: optional string (mirrors rule if present)
+    - rule: optional string
+  - pyright_version: string
+  - analyzed_root: absolute path used as working directory for invocation
+  - checked_paths: array of absolute paths that were provided to Pyright (files or directories)
+  - venv_path: absolute path to the active virtual environment used for execution (if any)
+- Ordering: Diagnostics are deterministically sorted by (file, start.line, start.character).
+- Error semantics: Structured success (ok/false) is used for expected conditions (threshold breach, no such path, timeout, parse errors); the tool does not raise unhandled exceptions.
+
+Example request (client-side):
+
+{
+  "name": "pyright_check",
+  "arguments": { "target": ".", "fail_on_severity": "warning" }
+}
+
+Example result (abridged):
+
+{
+  "ok": false,
+  "fail_reason": "fail_on_severity 'warning' breached (max_severity_level=3).",
+  "command": ["pyright","--outputjson","/path/to/proj"],
+  "exit_code": 1,
+  "summary": { "files_analyzed": 3, "error_count": 1, "warning_count": 0, "information_count": 0, "time_sec": 0.11 },
+  "diagnostics": [
+    {
+      "file": "/path/to/proj/bad.py",
+      "range": { "start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 5} },
+      "severity": "error",
+      "severity_level": 3,
+      "message": "Expression of type ... is not assignable to ...",
+      "rule": "reportGeneralTypeIssues",
+      "code": "reportGeneralTypeIssues"
+    }
+  ],
+  "pyright_version": "1.1.3xx",
+  "analyzed_root": "/path/to/proj"
+}
+
+=== Tool: pyright_version
+- Returns:
+  - version: string (empty if not found)
+  - executable_path: string (empty if not found)
+  - supports_outputjson: boolean
+
+=== Tool: find_pyright_config
+- Input: start_dir optional string. If omitted, starts from process CWD.
+- Search order (upwards from start):
+  1. pyrightconfig.json
+  2. pyproject.toml with [tool.pyright] section
+- Returns:
+  - found: bool
+  - config_path: optional string
+  - kind: "pyrightconfig.json" | "pyproject.toml" | "unknown" | null
+  - resolve_dir: directory used for resolving relative config
+  - searched_from: starting directory
+
+== Architecture
+- CLI entry point: console script pyright-mcp-server -> [pyright_mcp.server_main:main](src/pyright_mcp/server_main.py:108)
+- Server/tools: [pyright_mcp.server_main](src/pyright_mcp/server_main.py)
+- Runner: [pyright_mcp.runner](src/pyright_mcp/runner.py)
+- Models: [pyright_mcp.models](src/pyright_mcp/models.py)
+- Config discovery: [pyright_mcp.config](src/pyright_mcp/config.py)
+- Tests: [tests](tests)
+
+Flow:
+1. Tool call parsed by FastMCP.
+2. Tool handler composes PyrightCheckParams and calls PyrightRunner.run_check.
+3. Runner shells out to pyright --outputjson, parses JSON, normalizes diagnostics, sorts deterministically, applies threshold, returns CheckResult.
+4. Tool handler converts to Pydantic output models for structuredContent.
+
+== Development
+- poetry install
+- poetry run pyright
+- poetry run pytest -q
+- poetry run pyright-mcp-server
+
+=== TDD notes
+- Unit tests validate runner behavior: include/exclude, nonexistent paths, JSON parse failure, timeout, version probing, threshold semantics.
+- Integration test exercises stdio client <-> server tool calls and asserts structuredContent shape.
+- Aim for 100% coverage in runner; keep tests hermetic and fast.
+
+=== Logging and debugging
+- The server focuses on deterministic outputs. When pyright JSON parse fails, the returned fail_reason includes the tail of stdout/stderr to aid debugging.
+- You can run verbose pyright by adding extra_args like ["--verbose"].
+
+== Usage examples
+- Version:
+
+  Client tool call: { "name": "pyright_version", "arguments": {} }
+
+  Result: { "version": "1.1.3xx", "executable_path": "/usr/bin/pyright", "supports_outputjson": true }
+
+- Check a directory with a threshold:
+
+  Client tool call: { "name": "pyright_check", "arguments": { "target": ".", "fail_on_severity": "error" } }
+
+- Check one file with extra args:
+
+  Client tool call: { "name": "pyright_check", "arguments": { "target": "src/foo.py", "extra_args": ["--pythonversion","3.12"] } }
+
+== Performance considerations
+- Prefer include patterns to limit scope for large projects.
+- Use timeout_sec to bound runtime in CI. The server returns a structured timeout failure rather than hanging.
+- Pyright maintains a cache; repeated runs can be faster.
+
+== Limitations
+- The include/exclude filtering is done by the server using globs; it does not mirror every edge case of Pyright’s own include/exclude resolution.
+- The server depends on the pyright CLI being available on PATH inside Poetry’s environment.
+
+== Cookbook
+- MCP client integration (pseudocode):
+
+  - Initialize ClientSession over stdio to command ["poetry","run","pyright-mcp-server"].
+  - list_tools and verify names contain "pyright_check".
+  - call_tool("pyright_check", {"target": ".", "fail_on_severity": "warning"})
+
+- Configuring include/exclude:
+
+  - Include only Python files: include=["**/*.py"]
+  - Exclude generated code: exclude=["**/build/**","**/.venv/**"]
+
+== Research Notes
+- MCP Python SDK (FastMCP): https://github.com/modelcontextprotocol/python-sdk
+- MCP protocol docs: https://modelcontextprotocol.io/
+- Pyright CLI reference (--outputjson, exit codes): https://github.com/microsoft/pyright/blob/main/docs/command-line.md
+- Pyright project: https://github.com/microsoft/pyright
+
+== Local CI commands
+- poetry install
+- poetry run pyright
+- poetry run pytest -q
+
+== Optional: .roo/mcp.json integration
+Add an entry similar to:
+
+{
+  "mcpServers": {
+    "pyright-mcp": {
+      "command": "poetry",
+      "args": ["run","pyright-mcp-server"],
+      "enabled": true
+    }
+  }
+}
+
+Then connect your MCP client and invoke pyright_check against a sample project.

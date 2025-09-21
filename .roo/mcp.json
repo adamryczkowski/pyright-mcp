@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pyright-mcp": {
+      "command": "poetry",
+      "args": ["-C", "/home/adam/tmp/pyright-mcp", "run", "pyright-mcp-server"],
+      "env": {},
+      "enabled": true
+    }
+  }
+}

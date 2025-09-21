@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test/coverage caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+*.egg
+
+# IDE/editor
+.idea/
+.vscode/
+.ropeproject
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node (rare in this repo, but safe)
+node_modules/
+
+# Pyright local cache (if created)
+.pyright/
+
+# Environment files
+.env
+.env.*
+
+# Keep Poetry lockfile tracked (do not ignore poetry.lock)

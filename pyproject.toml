@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "pyright-mcp"
+version = "0.1.0"
+description = "MCP server to run Pyright and return structured diagnostics for coding AIs"
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "pyright_mcp", from = "src" }]
+
+[tool.poetry.scripts]
+pyright-mcp-server = "pyright_mcp.server_main:main"
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+mcp = ">=1.14,<2.0"
+pydantic = ">=2.7,<3.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.3,<9.0"
+pytest-asyncio = ">=0.23,<1.0"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
