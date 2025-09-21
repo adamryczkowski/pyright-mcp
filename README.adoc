@@ -42,6 +42,14 @@ Arguments
 * timeout_sec: integer, default 60. Timeout bound for the Pyright subprocess.
 * fail_on_severity: one of "none" | "information" | "warning" | "error". When diagnostics at or above this level exist, ok is set to false, but diagnostics are still returned.
 
+Note on venv_path
+
+The pyright_check tool does not accept a venv_path argument. Instead, the server auto-detects the active Python environment and returns it as a mandatory venv_path field in the result. To influence which environment is used:
+* Launch the server from within the desired virtual environment (e.g., Poetry: "poetry run pyright-mcp-server").
+* Or provide a specific interpreter to Pyright via extra_args (e.g., ["--pythonpath", "/path/to/venv/bin/python"]) if needed.
+
+This ensures venv_path is always present in results while keeping the input API minimal and robust.
+
 Return object fields
 
 * ok: boolean. True indicates tool-level success. False may still include diagnostics; fatal/truly exceptional errors are also expressed with ok=false and a fail_reason.
