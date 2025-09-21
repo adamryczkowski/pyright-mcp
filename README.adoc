@@ -1,0 +1,179 @@
+= pyright-mcp: Pyright MCP Server
+:toc: macro
+:toclevels: 3
+:sectanchors:
+
+toc::[]
+
+== Overview
+pyright-mcp is an MCP (Model Context Protocol) server that runs the Pyright static type checker and returns structured, deterministic diagnostics tailored for automated coding tools and CI bots.
+
+- Transport: stdio via the official Python SDK for MCP (FastMCP).
+- Packaging: Poetry.
+- Language level: Python 3.12.
+- Tests: pytest (with pytest-asyncio for MCP integration).
+- Static typing: Pyright passes clean over the codebase.
+
+== Quick start
+- poetry install
+- poetry run pyright
+- poetry run pytest -q
+- poetry run pyright-mcp-server
+
+== MCP Primer (concise)
+MCP is a JSON-RPC based protocol for tool invocation and resource access. Servers advertise tools with schemas. Clients call tools and receive structured results. This project exposes three tools over stdio using the MCP Python SDK’s FastMCP.
+
+== API Specification (detailed)
+
+=== Tool: pyright_check
+Run Pyright with JSON output on a target path (file or directory) and return normalized, stable diagnostics for machine consumption.
+
+Arguments
+- target: string (required). Path to the file or directory to analyze. The resulting response includes the mandatory checked_paths field describing the resolved absolute path(s) that were passed to Pyright.
+- cwd: optional string. If provided, server executes Pyright from this working directory (analyzed_root in result reflects where analysis was resolved).
+- include: optional array of glob strings. If provided, the server expands include patterns relative to the target root and passes the explicit file list to Pyright.
+- exclude: optional array of glob strings. Applied as a filter over the include expansion.
+- extra_args: optional array of strings. Extra Pyright CLI flags (e.g., ["--pythonversion","3.12"]).
+- timeout_sec: integer, default 60. Timeout bound for the Pyright subprocess.
+- fail_on_severity: one of "none" | "information" | "warning" | "error". When diagnostics at or above this level exist, ok is set to false, but diagnostics are still returned.
+
+Return object fields
+- ok: boolean. True indicates tool-level success. False may still include diagnostics; fatal/truly exceptional errors are also expressed with ok=false and a fail_reason.
+- fail_reason: optional string. Human-readable explanation when ok=false (e.g., threshold breach, timeout, missing executable, JSON parse failure).
+- command: array of strings. The exact command invoked.
+- exit_code: integer. Pyright exit status (or -1 on infrastructure errors).
+- summary: object
+  - files_analyzed: int
+  - error_count: int
+  - warning_count: int
+  - information_count: int
+  - time_sec: float
+- diagnostics: array of objects (deterministically sorted by file asc, start.line asc, start.character asc)
+  - file: absolute path
+  - range: { start: { line:int, character:int }, end: { line:int, character:int } }
+  - severity: "information" | "warning" | "error"
+  - severity_level: 1 | 2 | 3 (information=1, warning=2, error=3)
+  - message: string
+  - code: optional string (mirrors rule if present)
+  - rule: optional string
+- pyright_version: string. Version returned by Pyright (or probed).
+- analyzed_root: string. Absolute working directory used to resolve relative paths.
+- checked_paths: array of strings. Absolute path(s) that were ultimately provided to Pyright. This field is mandatory and explicitly reports the files/dirs analyzed for traceability.
+- venv_path: string. Absolute path to the Python environment used for execution (virtual environment if active via $VIRTUAL_ENV or sys.prefix != sys.base_prefix; otherwise sys.prefix). This field is mandatory.
+
+Mandatory paths note
+- checked_paths and venv_path are guaranteed to be present for all execution paths (success or failure). This enables reproducibility and tooling-level auditing of the environment and input set across client implementations.
+
+Error semantics
+- Missing target path: ok=false with actionable fail_reason. checked_paths will be [] (empty), venv_path present.
+- Missing Pyright CLI: ok=false with remediation guidance (install globally or ensure it is on PATH within Poetry). checked_paths present, venv_path present.
+- Timeout: ok=false with suggestions to increase timeout or reduce scope. checked_paths present, venv_path present.
+- Unparseable JSON: ok=false with an excerpt of output to aid debugging. checked_paths present, venv_path present.
+
+Example request (client-side, conceptual)
+{
+  "name": "pyright_check",
+  "arguments": { "target": ".", "fail_on_severity": "warning" }
+}
+
+Example result (abridged)
+{
+  "ok": false,
+  "fail_reason": "fail_on_severity 'warning' breached (max_severity_level=3).",
+  "command": ["pyright","--outputjson","/path/to/proj"],
+  "exit_code": 1,
+  "summary": { "files_analyzed": 3, "error_count": 1, "warning_count": 0, "information_count": 0, "time_sec": 0.11 },
+  "diagnostics": [
+    {
+      "file": "/path/to/proj/bad.py",
+      "range": { "start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 5} },
+      "severity": "error",
+      "severity_level": 3,
+      "message": "Expression of type ... is not assignable to ...",
+      "rule": "reportGeneralTypeIssues",
+      "code": "reportGeneralTypeIssues"
+    }
+  ],
+  "pyright_version": "1.1.3xx",
+  "analyzed_root": "/path/to/proj",
+  "checked_paths": ["/path/to/proj"],
+  "venv_path": "/home/you/.cache/pypoetry/virtualenvs/pyright-mcp-.../bin/.."
+}
+
+=== Tool: pyright_version
+Return the Pyright CLI version and resolved executable path.
+
+Return object
+- version: string (empty if not found or probe failed)
+- executable_path: string (empty if not found)
+- supports_outputjson: boolean (true for typical modern Pyright installations)
+
+=== Tool: find_pyright_config
+Discover the configuration file used by Pyright starting from start_dir (or CWD if omitted). The server searches upward and returns the first match.
+
+Arguments
+- start_dir: optional string. Starting directory for upward search; if omitted, uses the server process’s CWD.
+
+Search precedence
+1. pyrightconfig.json
+2. pyproject.toml containing a [tool.pyright] section
+
+Return object
+- found: bool
+- config_path: optional string
+- kind: "pyrightconfig.json" | "pyproject.toml" | "unknown" | null
+- resolve_dir: directory used to resolve relative configuration
+- searched_from: starting directory for the search
+
+== Architecture
+- CLI entry point: console script pyright-mcp-server
+- Server/tools module: src/pyright_mcp/server_main.py
+- Runner: src/pyright_mcp/runner.py
+- Typed models: src/pyright_mcp/models.py
+- Config discovery: src/pyright_mcp/config.py
+- Tests: tests/
+
+Flow
+1. Client calls a tool (e.g., pyright_check).
+2. Tool handler constructs parameters and calls the Pyright runner.
+3. Runner shells out to pyright --outputjson, parses JSON, normalizes diagnostics, sorts deterministically, applies severity thresholds, and returns a typed result.
+4. Tool handler returns Pydantic-validated structured content to the client (MCP).
+
+== Development workflow
+- poetry install
+- poetry run pyright
+- poetry run pytest -q
+- poetry run pyright-mcp-server
+
+TDD notes
+- Unit tests exercise runner behavior and edge cases including nonexistent paths, JSON parse failure, missing executable, and timeouts.
+- Integration test uses the MCP stdio client to launch and interact with the server.
+
+Logging and debugging
+- Timeout and JSON parse failure paths return actionable messages with details such as stderr tail excerpts.
+- Add extra_args like ["--verbose"] to Pyright for deeper diagnostics.
+
+== MCP Client Integration
+- Stdio launch example (conceptual): ["poetry", "run", "pyright-mcp-server"]
+- In IDEs or clients that control CWD, pass -C to Poetry for robustness:
+  ["poetry", "-C", "/path/to/project", "run", "pyright-mcp-server"]
+- The server will advertise tools: pyright_check, pyright_version, find_pyright_config.
+
+== Performance considerations
+- Use include patterns to limit scope in large projects.
+- Tune timeout_sec as needed. Pyright caches results between runs; repeated checks can be faster.
+
+== Limitations
+- Include/exclude glob behavior is implemented by the server and may not capture every Pyright-native edge case.
+- The pyright CLI must be reachable on PATH within the Poetry environment that launches the server.
+
+== Research Notes (key links)
+- MCP Python SDK (FastMCP): https://github.com/modelcontextprotocol/python-sdk
+- MCP protocol overview: https://modelcontextprotocol.io/
+- Pyright CLI docs: https://github.com/microsoft/pyright/blob/main/docs/command-line.md
+- Pyright project: https://github.com/microsoft/pyright
+
+== Local CI commands
+- poetry install
+- poetry run pyright
+- poetry run pytest -q
